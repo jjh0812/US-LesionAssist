@@ -22,6 +22,19 @@ PyTorch U-Net으로 유방 초음파 영상의 병변 영역을 분할하고, �
 
 추론 시간은 모델 실행만 측정한 값으로, 영상 입출력과 전후처리를 포함하지 않습니다. 마스크 일치율 100%는 동일 입력에서 두 런타임의 결과가 일치했다는 의미이지 의료적 정확도를 의미하지 않습니다.
 
+## 실제 C++ 병변 분할 결과
+
+![유방 초음파 병변 분할 결과](docs/images/lesion_overlay.png)
+
+위 이미지는 BUSI 공개 데이터셋의 초음파 영상에 C++ ONNX Runtime 기반 U-Net 모델이 예측한 병변 영역을 표시한 결과입니다.
+
+- 구현: C++17, OpenCV, ONNX Runtime
+- 입력: 160 × 160 grayscale
+- CPU 추론 중앙값: 3.8ms
+- Python-C++ 동일 입력 추론 결과 일치율: 100%
+
+이미지 출처: Al-Dhabyani et al. (2020), Dataset of breast ultrasound images. 연구용 시각화 결과이며 임상 진단에 사용할 수 없습니다.
+
 ## 시스템 구조
 
 BUSI 초음파 데이터 → PyTorch U-Net 학습 → ONNX 변환 → C++ / OpenCV 전처리 → ONNX Runtime CPU 추론 → 병변 마스크 및 오버레이 생성
@@ -121,3 +134,4 @@ Al-Dhabyani et al. (2020), Dataset of breast ultrasound images, Data in Brief.
 
 - https://doi.org/10.1016/j.dib.2019.104863
 - https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset
+
