@@ -1,128 +1,86 @@
-# US-LesionAssist — PyTorch → ONNX Runtime → C++ / OpenCV
+﻿# US-LesionAssist: C++ / ONNX Runtime 실행 가이드
 
-**Purpose:** Convert the existing trained BUSI U-Net v1 model into a standalone C++ ultrasound image segmentation demo. It is a **research prototype only, not a diagnostic device**. No clinical validation, safety certification, DICOM acquisition, live ultrasound integration, or regulatory approval is claimed.
+PyTorch U-Net 모델을 Windows C++17, OpenCV, ONNX Runtime CPU 환경에서 실행하기 위한 가이드입니다.
 
-## What is already implemented vs. what requires local execution
+## 1. 모델 준비
 
-- Existing project: U-Net training/evaluation, Streamlit viewer, frozen `train/val/test` split.
-- This upgrade contains: `export_onnx.py`, `verify_onnx.py`, `validate_deployment.py`, `prepare_demo.py`, a C++ ONNX Runtime CPU + OpenCV inference executable, benchmarking, and CMake build scripts.
-- **Not shipped:** your own trained `outputs/best_model.pt`, BUSI images, ONNX exported weights, compiled Windows executable, or observed C++ benchmark results. These must be generated on your laptop.
-- The original v1 checkpoint and Streamlit demo remain unchanged.
+프로젝트 루트에서 아래 명령어를 실행합니다.
 
-## A. Start with Python (Windows 11, VS Code PowerShell)
-
-1. Extract the ZIP somewhere, then **open the extracted `US-LesionAssist-Cpp-ONNX-Upgrade` folder and copy its contents** (the `.py` files, `cpp` folder, and README) into your existing `C:\Projects\US-LesionAssist-VSCode-Starter\US-LesionAssist` folder. Check that `export_onnx.py` sits next to `train.py` and `app_v2.py`. Do not leave these files inside a second nested folder.
-2. Open a terminal with your existing `.venv` activated and project folder as the current directory:
-
-   ```powershell
-   Get-Location
-   Test-Path .\outputs\best_model.pt
-   ```
-
-   The second line must show `True`.
-
-3. Install export and runtime dependencies:
-
-   ```powershell
-   python -m pip install -r requirements-deploy.txt
-   ```
-
-4. Export the **existing selected v1** checkpoint (trained at 160 px) to an ONNX file, without re-training:
-
-   ```powershell
-   python export_onnx.py
-   ```
-
-   Check for `ONNX graph check: PASSED`; output: `exports/unet_v1.onnx`. The output is **logits**, not probabilities, malignancy labels, or diagnostic results.
-
-5. Copy the known **validation** example `malignant (63).png` to an ASCII-only demo path and run parity test. This avoids some Windows OpenCV issues with a non-ASCII user profile directory:
-
-   ```powershell
-   python prepare_demo.py
-   python verify_onnx.py --image samples/demo.png
-   ```
-
-   To explore the known failure example later, use `python prepare_demo.py --filename 'malignant (106).png' --out samples/failure.png`; never present one chosen image as average performance.
-
-   The report `exports/onnx_parity_report.json` must say `"status": "PASS"`. This compares PyTorch and ONNX Runtime on the **same OpenCV-preprocessed input tensor**. It outputs `exports/parity_input.bin` and `exports/parity_ort_logits.bin` for a later C++ comparison.
-
-6. Evaluate the change in image preprocessing on the **validation** split (not the test split):
-
-   ```powershell
-   python validate_deployment.py
-   ```
-
-   Review `exports/deployment_val_report.json`, especially the total Dice and the malignant subset. It compares the original training pipeline (PIL image preprocessing) against the C++-matching OpenCV preprocessing; image preprocessing differences can affect masks even when ONNX numerical parity is excellent.
-
-## B. Build the C++ app on Windows
-
-You need **Microsoft Visual C++ Build Tools** with C++ workload, **CMake**, **Git**, **OpenCV C++ development libraries**, and **ONNX Runtime C/C++ Windows x64** binaries. `pip install opencv-python` / `pip install onnxruntime` alone does **not** install the C++ header and linker SDKs.
-
-Official instructions:
-- [ONNX Runtime C++ getting started](https://onnxruntime.ai/docs/get-started/with-cpp.html)
-- [ONNX Runtime Windows guidance](https://onnxruntime.ai/docs/get-started/with-windows.html)
-- [ONNX Runtime Windows x64 releases](https://github.com/microsoft/onnxruntime/releases)
-- [Microsoft vcpkg](https://github.com/microsoft/vcpkg)
-
-Example Windows setup (adjust versions and paths to your installed software):
-
-```powershell
-# A) Set up vcpkg and OpenCV C++ once:
-git clone https://github.com/microsoft/vcpkg C:\Projects\vcpkg
-C:\Projects\vcpkg\bootstrap-vcpkg.bat
-C:\Projects\vcpkg\vcpkg.exe install opencv4:x64-windows
-
-# B) Download a CPU Windows x64 ONNX Runtime ZIP from the official GitHub
-# release page and unzip it, for example, under:
-# C:\Projects\deps\onnxruntime-win-x64-VERSION\
-# Confirm that include\onnxruntime_cxx_api.h and lib\onnxruntime.lib exist.
-
-# C) Configure and build from the project ROOT (Visual Studio 2022 C++ tools shown):
-cmake -S cpp -B cpp\build -G "Visual Studio 17 2022" -A x64 `
-  -DCMAKE_TOOLCHAIN_FILE="C:/Projects/vcpkg/scripts/buildsystems/vcpkg.cmake" `
-  -DONNXRUNTIME_ROOT="C:/Projects/deps/onnxruntime-win-x64-VERSION"
-cmake --build cpp\build --config Release
+```bat
+.venv\Scripts\python.exe export_onnx.py
+.venv\Scripts\python.exe prepare_demo.py
+.venv\Scripts\python.exe verify_onnx.py --image samples/demo.png
 ```
 
-If you have a different MSVC version, replace the generator with the corresponding one (`cmake -G` lists those available). If an OpenCV DLL cannot be found at run time, ensure the vcpkg `installed/x64-windows/bin` directory is on `PATH`; the CMake target copies the ONNX Runtime DLL from its SDK `lib` folder, if found.
+필요한 로컬 파일:
 
-## C. Run the C++ app and save an overlay and benchmark
+- `outputs/best_model.pt` : 학습 완료된 PyTorch 모델
+- `exports/unet_v1.onnx` : 변환된 ONNX 모델
+- `samples/demo.png` : 데모 초음파 영상
+- `exports/parity_input.bin` : 수치 검증 입력
+- `exports/parity_ort_logits.bin` : Python 측 기준 출력
 
-From the **project root** in VS Code terminal:
+모델 가중치와 데이터셋은 GitHub에 포함하지 않으므로 직접 생성해야 합니다.
 
-```powershell
-.\cpp\build\Release\lesion_infer.exe --model exports/unet_v1.onnx --image samples/demo.png --out cpp_results --warmup 10 --runs 100
+## 2. C++ 개발 환경
+
+- Windows 11
+- Visual Studio C++ Build Tools
+- CMake
+- OpenCV C++ 라이브러리 (vcpkg)
+- ONNX Runtime Windows x64 C++ SDK
+
+검증 당시 Visual Studio 2026 Build Tools, OpenCV 4.14.0, ONNX Runtime 1.32.0 CPU를 사용했습니다.
+
+## 3. CMake 빌드
+
+MSVC 개발자 명령 프롬프트에서 실행합니다. 경로는 각 PC 환경에 맞게 수정해야 합니다.
+
+```bat
+cmake -S cpp -B cpp\build_132 -G "Visual Studio 18 2026" -A x64 -DCMAKE_TOOLCHAIN_FILE=C:/Projects/vcpkg/scripts/buildsystems/vcpkg.cmake -DONNXRUNTIME_ROOT=C:/Projects/deps/onnxruntime-win-x64-1.32.0/onnxruntime-win-x64-1.32.0 -DVCPKG_APPLOCAL_DEPS=OFF -DUSLA_COPY_ORT_DLL=OFF
+cmake --build cpp\build_132 --config Release
 ```
 
-Outputs: `cpp_results/overlay.png`, `mask.png`, `cpp_logits.bin`, `benchmark.json` with median and p95 **CPU ORT model-only** latency. Results are measured locally; no prefilled or invented numbers.
+현재 설정은 빌드 후 DLL 자동 복사를 비활성화합니다. ONNX Runtime DLL을 실행 파일 옆에 배치하고 OpenCV DLL 검색 경로를 설정해야 합니다.
 
-Confirm C++ and Python ONNX outputs agree on **exactly the same tensor**:
-
-```powershell
-.\cpp\build\Release\lesion_infer.exe --model exports/unet_v1.onnx --input-bin exports/parity_input.bin --reference-logits exports/parity_ort_logits.bin --out cpp_parity
+```bat
+copy /Y "C:\Projects\deps\onnxruntime-win-x64-1.32.0\onnxruntime-win-x64-1.32.0\lib\onnxruntime.dll" "cpp\build_132\Release\onnxruntime.dll"
+set "PATH=C:\Projects\vcpkg\installed\x64-windows\bin;%PATH%"
 ```
 
-Open `cpp_parity/benchmark.json` and inspect `max_abs_diff_vs_reference_logits` and `binary_mask_agreement_vs_reference`. The reference binaries were generated by `verify_onnx.py` with `samples/demo.png`. The result is meaningful only when the exact image and ONNX model are unchanged.
+## 4. 실제 초음파 영상 분석
 
-**Benchmark honesty:** The previous `1.77 ms` number came from **PyTorch on CUDA** and is **not** comparable to this C++ CPU ONNX Runtime benchmark. Compare like-for-like providers, machines and input dimensions, and distinguish inference latency from end-to-end latency. Python `verify_onnx.py` also records ONNX Runtime CPU timing for comparison.
+```bat
+cpp\build_132\Release\lesion_infer.exe --model exports/unet_v1.onnx --image samples/demo.png --out cpp_results --warmup 10 --runs 100
+```
 
-## Suggested report / portfolio artifacts
+생성 결과:
 
-- Screenshots: `cpp_results/overlay.png`, `cpp_results/mask.png`, existing Streamlit ground-truth viewer.
-- `exports/onnx_parity_report.json`: verified numerical agreement.
-- `exports/deployment_val_report.json`: validation Dice/IoU after C++-compatible preprocessing.
-- `cpp_results/benchmark.json`: C++ CPU inference median/p95.
-- `outputs/test_metrics.json`: selected v1 held-out test Dice/IoU, with limitations.
-- `outputs_v2*/comparison_val.json`, `outputs_v3/comparison_val.json`, `outputs_control160/comparison_val.json`: five experiment comparisons (do not confuse validation with held-out test results).
+- `cpp_results/overlay.png` : 병변 오버레이 이미지
+- `cpp_results/mask.png` : 예측 마스크
+- `cpp_results/cpp_logits.bin` : 모델 출력
+- `cpp_results/benchmark.json` : 추론 성능 기록
 
-Do **not** claim it runs in a real Samsung ultrasound system, performs medical diagnosis, or is product-ready. BUSI masks are region annotations, not malignant classification probabilities; no patient-level split guarantee is available.
+## 5. Python-C++ 결과 비교
 
-## Troubleshooting
+```bat
+cpp\build_132\Release\lesion_infer.exe --model exports/unet_v1.onnx --input-bin exports/parity_input.bin --reference-logits exports/parity_ort_logits.bin --out cpp_parity --warmup 10 --runs 100
+```
 
-- `ModuleNotFoundError: onnx` → `python -m pip install -r requirements-deploy.txt` in the project `.venv`.
-- `No ONNX file` → export first; make sure `outputs/best_model.pt` is your trained v1 checkpoint.
-- `ONNXRUNTIME_ROOT` missing → download the **C++ native** distribution; Python wheel is insufficient.
-- `OpenCVConfig.cmake` not found → configure CMake using the vcpkg toolchain, and ensure OpenCV C++ is installed.
-- DLL cannot be found → copy the required `onnxruntime.dll` and OpenCV DLLs beside `lesion_infer.exe` or put their directories on `PATH`.
-- Missing `samples/demo.png` → `python prepare_demo.py` from project root.
-- Non-ASCII Windows username causes `cv::imread` error → use `samples/demo.png` (ASCII relative path).
+실제 검증 결과:
+
+```text
+Numerical parity max_abs_diff: 0
+mask agreement: 1
+Median/p95 inference: 3.8 / 4.0 ms
+```
+
+모델 실행 시간은 영상 입출력과 전후처리를 제외합니다.
+
+## 6. 주의사항
+
+Python과 C++의 동일 입력 텐서 추론은 일치했지만, PIL과 OpenCV의 전처리가 완전히 동일한 것은 아닙니다.
+
+실제 의료기기 연동, 외부 환자 집단에 대한 검증 및 임상적 안전성 평가는 수행하지 않았습니다.
+
+[메인 README로 돌아가기](README.md)
